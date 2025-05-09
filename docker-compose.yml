@@ -19,9 +19,9 @@ services:
   broker:
     image: confluentinc/cp-server:7.4.0
     hostname: broker
-    depends_on:
-      zookeeper:
-        condition: service_healthy
+    #depends_on:
+    #zookeeper:
+    #condition: service_healthy
     ports:
       - "9092:9092"
       - "9101:9101"
@@ -58,7 +58,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 100s
 
   control-center:
     image: confluentinc/cp-enterprise-control-center:7.4.0
@@ -88,7 +88,7 @@ services:
 
   webserver:
     image: apache/airflow:2.6.0-python3.9
-    command: webserver
+    command: "airflow webserver"
     entrypoint: ["/opt/airflow/script/entrypoint.sh"]
     depends_on:
       - postgres
@@ -103,11 +103,17 @@ services:
       - ./requirements.txt:/opt/airflow/requirements.txt
     ports:
       - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+        #healthcheck:
+        #test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+        #interval: 10s
+        #timeout: 5s
+        #retries: 5
+        #start_period: 100s
+        #healthcheck:
+        #test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+        #interval: 10s
+        #timeout: 5s
+        #retries: 5
     networks:
       - confluent
 
@@ -129,16 +135,55 @@ services:
         #    networks:
         #      - confluent
 
+  #scheduler:
+    #image: apache/airflow:2.6.0-python3.9
+    #depends_on:
+      #- postgres
+    #environment:
+      #- AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      #- AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    #volumes:
+      #- ./dags:/opt/airflow/dags
+    #command: scheduler
+    #networks:
+      #- confluent
+      #scheduler:
+      #image: apache/airflow:2.6.0-python3.9
+      #depends_on:
+      #webserver:
+      #condition: service_healthy
+      #volumes:
+      #- ./dags:/opt/airflow/dags
+      #- ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
+      #- ./requirements.txt:/opt/airflow/requirements.txt
+      #environment:
+      #LOAD_EX: n
+      #EXECUTOR: Sequential
+      #AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      #AIRFLOW_WEBSERVER_SECRET_KEY: this_is_a_very_secured_key
+      #command: bash -c "/opt/airflow/script/entrypoint.sh && airflow scheduler"
+      #networks:
+      #- confluent
   scheduler:
     image: apache/airflow:2.6.0-python3.9
-    depends_on:
-      - postgres
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    #depends_on:
+    #webserver:
+    #condition: service_healthy
+    entrypoint: ["/opt/airflow/script/entrypoint.sh"]
+    command: "airflow scheduler"
+    #command: bash -c "pip install -r ./requirements.txt && airflow db upgrade && airflow scheduler"
     volumes:
       - ./dags:/opt/airflow/dags
-    command: scheduler
+      - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
+      - ./requirements.txt:/opt/airflow/requirements.txt
+    environment:
+      LOAD_EX: n
+      EXECUTOR: Sequential
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW_WEBSERVER_SECRET_KEY: this_is_a_very_secured_key
+    networks:
+      - confluent
+
 
 networks:
   confluent:
