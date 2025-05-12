@@ -9,7 +9,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import StructType, StringType
 
-# ── 1. Spark session ────────────────────────────────────────────────────────
+
 spark = (
     SparkSession.builder
         .appName("Kafka → Cassandra : users_created")
@@ -26,7 +26,6 @@ spark = (
 )
 spark.sparkContext.setLogLevel("WARN")
 
-# ── 2. Schema that exactly matches the JSON payload ─────────────────────────
 kafka_schema = (
     StructType()
         .add("first_name", StringType())
@@ -34,13 +33,11 @@ kafka_schema = (
         .add("email",      StringType(), nullable=False)   # PK ⇒ NOT NULL
 )
 
-# ── 3. Read & parse Kafka JSON messages ─────────────────────────────────────
 kafka_df = (
     spark.readStream
         .format("kafka")
         .option("kafka.bootstrap.servers", "broker:29092")
         .option("subscribe", "users_created")
-        # Use "earliest" while you’re re‑testing; switch to "latest" in prod
         .option("startingOffsets", "earliest")
         .load()
         .selectExpr("CAST(value AS STRING) AS json")
@@ -50,10 +47,9 @@ parsed_df = (
     kafka_df
         .select(from_json(col("json"), kafka_schema).alias("data"))
         .select("data.*")
-        .filter(col("email").isNotNull())        # safety for the PK
+        .filter(col("email").isNotNull())        
 )
 
-# ── 4. Write each micro‑batch to Cassandra ──────────────────────────────────
 def write_to_cassandra(batch_df, _epoch_id):
     (
         batch_df.write
@@ -70,5 +66,5 @@ query = (
         .start()
 )
 
-print("🚀  Streaming query RUNNING — waiting for messages on topic ‘users_created’ …")
+print("  Streaming query RUNNING — waiting for messages on topic ‘users_created’ …")
 query.awaitTermination()
