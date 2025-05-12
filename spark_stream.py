@@ -1,48 +1,45 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType
-from pyspark.sql.functions import from_json, col
-import logging
+from pyspark.sql.functions import col, from_json
+from pyspark.sql.types import StructType, StringType, IntegerType
 
-def get_spark():
-    return SparkSession.builder \
-        .appName("SparkKafkaToCassandra") \
-        .config("spark.jars.packages",
-                "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,"
-                "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1") \
-        .config("spark.cassandra.connection.host", "cassandra") \
-        .getOrCreate()
+spark = (SparkSession.builder
+         .appName("Kafka to Cassandra Streaming")
+         .config("spark.jars.packages", 
+                 "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,"
+                 "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1,"
+                 "com.github.jnr:jnr-posix:3.1.16")  # Fix for JNR issue
+         .config("spark.cassandra.connection.host", "cassandra")
+         .getOrCreate())
 
-def main():
-    spark = get_spark()
-    spark.sparkContext.setLogLevel("ERROR")
+# Define the schema of incoming Kafka messages
+kafka_schema = StructType().add("id", IntegerType()).add("name", StringType()).add("value", IntegerType())
 
-    # Read from Kafka
-    raw_df = spark.readStream.format("kafka") \
-        .option("kafka.bootstrap.servers", "broker:29092") \
-        .option("subscribe", "users_created") \
-        .option("startingOffsets", "earliest") \
-        .load()
+# Read from Kafka
+kafka_df = (spark.readStream
+            .format("kafka")
+            .option("kafka.bootstrap.servers", "broker:29092")
+            .option("subscribe", "test-topic")
+            .option("startingOffsets", "earliest")
+            .load()
+            .selectExpr("CAST(value AS STRING) AS json"))
 
-    # Parse JSON value
-    schema = StructType([
-        StructField("first_name", StringType()),
-        StructField("last_name",  StringType()),
-        StructField("email",      StringType()),
-    ])
-    parsed = raw_df.selectExpr("CAST(value AS STRING) as json_str") \
-        .select(from_json(col("json_str"), schema).alias("data")) \
-        .select("data.*")
+# Parse JSON messages
+parsed_df = (kafka_df
+             .select(from_json(col("json"), kafka_schema).alias("data"))
+             .select("data.*"))
 
-    # Write to Cassandra
-    query = parsed.writeStream \
-        .format("org.apache.spark.sql.cassandra") \
-        .option("checkpointLocation", "/tmp/checkpoint") \
-        .option("keyspace", "spark_streams") \
-        .option("table", "created_users") \
-        .start()
+# Define the batch write function
+def write_to_cassandra(batch_df, _):
+    (batch_df.write
+     .format("org.apache.spark.sql.cassandra")
+     .mode("append")
+     .options(keyspace="spark_demo", table="events")
+     .save())
 
-    query.awaitTermination()
+# Use foreachBatch to write to Cassandra
+query = (parsed_df.writeStream
+         .foreachBatch(write_to_cassandra)
+         .option("checkpointLocation", "/tmp/checkpoints/kafka_cassandra")
+         .start())
 
-if __name__ == "__main__":
-    main()
-
+query.awaitTermination()

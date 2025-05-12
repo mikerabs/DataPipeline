@@ -1,4 +1,5 @@
-version: '3'
+version: '3.8'
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -8,37 +9,21 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    healthcheck:
-      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - confluent
 
   broker:
     image: confluentinc/cp-server:7.4.0
     hostname: broker
-    #depends_on:
-    #zookeeper:
-    #condition: service_healthy
     ports:
       - "9092:9092"
-      - "9101:9101"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_JMX_PORT: 9101
-      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      KAFKA_CFG_CONFLUENT_REPORTERS_TELEMETRY_AUTO_ENABLE: "false"
-    healthcheck:
-      test: ["CMD", "bash", "-c", "nc -z localhost 9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - confluent
 
@@ -54,21 +39,13 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
     networks:
       - confluent
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 100s
 
   control-center:
     image: confluentinc/cp-enterprise-control-center:7.4.0
     hostname: control-center
     depends_on:
-      broker:
-        condition: service_healthy
-      schema-registry:
-        condition: service_healthy
+      - broker
+      - schema-registry
     ports:
       - "9021:9021"
     environment:
@@ -84,6 +61,21 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - confluent
+
+  cassandra:
+    image: cassandra:4.0
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=spark_cluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+    volumes:
+      - cassandra_data:/var/lib/cassandra
     networks:
       - confluent
 
@@ -104,75 +96,15 @@ services:
       - ./requirements.txt:/opt/airflow/requirements.txt
     ports:
       - "8080:8080"
-        #healthcheck:
-        #test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-        #interval: 10s
-        #timeout: 5s
-        #retries: 5
-        #start_period: 100s
-        #healthcheck:
-        #test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-        #interval: 10s
-        #timeout: 5s
-        #retries: 5
     networks:
       - confluent
 
-        #  scheduler:
-        #    image: apache/airflow:2.6.0-python3.9
-        #    depends_on:
-        #      webserver:
-        #        condition: service_healthy
-        #    volumes:
-        #      - ./dags:/opt/airflow/dags
-        #      - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
-        #      - ./requirements.txt:/opt/airflow/requirements.txt
-        #    environment:
-        #      LOAD_EX: n
-        #      EXECUTOR: Sequential
-        #      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-        #      AIRFLOW_WEBSERVER_SECRET_KEY: this_is_a_very_secured_key
-        #    command: bash -c "pip install -r ./requirements.txt && airflow db upgrade && airflow scheduler"
-        #    networks:
-        #      - confluent
-
-  #scheduler:
-    #image: apache/airflow:2.6.0-python3.9
-    #depends_on:
-      #- postgres
-    #environment:
-      #- AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      #- AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-    #volumes:
-      #- ./dags:/opt/airflow/dags
-    #command: scheduler
-    #networks:
-      #- confluent
-      #scheduler:
-      #image: apache/airflow:2.6.0-python3.9
-      #depends_on:
-      #webserver:
-      #condition: service_healthy
-      #volumes:
-      #- ./dags:/opt/airflow/dags
-      #- ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
-      #- ./requirements.txt:/opt/airflow/requirements.txt
-      #environment:
-      #LOAD_EX: n
-      #EXECUTOR: Sequential
-      #AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      #AIRFLOW_WEBSERVER_SECRET_KEY: this_is_a_very_secured_key
-      #command: bash -c "/opt/airflow/script/entrypoint.sh && airflow scheduler"
-      #networks:
-      #- confluent
   scheduler:
     image: apache/airflow:2.6.0-python3.9
-    #depends_on:
-    #webserver:
-    #condition: service_healthy
     entrypoint: ["/opt/airflow/script/entrypoint.sh"]
     command: "airflow scheduler"
-    #command: bash -c "pip install -r ./requirements.txt && airflow db upgrade && airflow scheduler"
+    depends_on:
+      - webserver
     volumes:
       - ./dags:/opt/airflow/dags
       - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
@@ -185,8 +117,24 @@ services:
     networks:
       - confluent
 
+  spark:
+    image: bitnami/spark:3.4.1
+    command: >
+      /opt/bitnami/spark/bin/spark-submit
+      --master local[*]
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,com.datastax.spark:spark-cassandra-connector_2.12:3.4.1
+      /DataPipeline/spark_stream.py
+    volumes:
+      - ./spark_stream.py:/DataPipeline/spark_stream.py
+      - ./mnt:/mnt
+    networks:
+      - confluent
+    ports:
+      - "4040:4040"
+volumes:
+  postgres_data:
+  cassandra_data:
 
 networks:
   confluent:
     driver: bridge
-
