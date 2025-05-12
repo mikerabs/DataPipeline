@@ -30,3 +30,5 @@ docker exec -it datapipeline-broker-1 \
 docker exec -it datapipeline-cassandra-1 \
   cqlsh -e "SELECT * FROM spark_demo.events;"
 
+docker exec -it datapipeline-cassandra-1 \
+>   cqlsh -e "SELECT * FROM spark_demo.users_created;"
