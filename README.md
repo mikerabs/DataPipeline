@@ -1,6 +1,7 @@
 # DataPipeline
-a Real-Time Data Pipeline made with Apache Airflow, Kafka, Spark, and Cassandra
+a Real-Time Data Pipeline made with Apache Airflow, Kafka, Spark, and Cassandra.
 
+based on the pipeline detailed here: https://medium.com/@jushijun/building-a-real-time-data-pipeline-with-apache-airflow-kafka-spark-and-cassandra-be4ee5be8843
 ## To start docker and build all containers:
 
 docker compose up -d --build
@@ -15,13 +16,13 @@ docker compose down --remove-orphans
 
 ## General Steps:
 
-1.) build all the containers, check that all have started and not having any errors
-2.) check the docker logs on datapipeline-webserver-1, datapipeline-control-center-1 to make sure container is booted and web services are live and ready to be connected to.
-3.) navigate to [VM external ip]:port# for various UIs, 8080 for Airflow, 9021 for Confluent, 4040 for Spark Stream
-4.) manually toggle the user_automation in Airflow, trigger the DAG to begin ingestion
-5.) navigate to confluent's UI to the cluster, Topics, users_created, and messages to view the incoming JSON stream
-6.) navigate to Spark Stream's UI to view the job
-7.) Run the Cassandra command to view the newly inputted data in the table
+1. build all the containers, check that all have started and not having any errors
+2. check the docker logs on datapipeline-webserver-1, datapipeline-control-center-1 to make sure container is booted and web services are live and ready to be connected to.
+3. navigate to [VM external ip]:port# for various UIs, 8080 for Airflow, 9021 for Confluent, 4040 for Spark Stream
+4. manually toggle the user_automation in Airflow, trigger the DAG to begin ingestion
+5. navigate to confluent's UI to the cluster, Topics, users_created, and messages to view the incoming JSON stream
+6. navigate to Spark Stream's UI to view the job
+7. Run the Cassandra command to view the newly inputted data in the table
 
 
 ## Command to create admin user within airflow ui
@@ -37,7 +38,7 @@ docker exec -it datapipeline-webserver-1 airflow users create \
 
 Had to add firewall rules in Google Cloud to port 8080 and port 9021 and port 4040 for airflow ui and confluent and spark stream
 
-had to remove health checks on containers/make the start time delay 100+ seconds due to slow boot up
+had to remove some health checks on containers/make the start time delay 100+ seconds due to slow cold boot up
 
 ## send a test topic from kafka(Project not configured for this anymore)
 //produce from inside the broker container (best – guarantees we hit “broker:29092”)
